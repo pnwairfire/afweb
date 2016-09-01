@@ -1,0 +1,5 @@
+__pycache__/
+tmp/
+afweb.egg-info/
+*.pyc
+.cache/
