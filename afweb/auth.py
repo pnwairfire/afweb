@@ -30,16 +30,20 @@ REQUIRED_REQUEST_PARAMS_SET = set(REQUIRED_REQUEST_PARAMS.values())
 TIMESTAMP_FORMAT = "%Y%m%dT%H%M%SZ"
 
 def sign_request(url, key, secret):
+    # TODO: if url doesn't have 'http[s://', add it (otherwise
+    #   urllib.parse.urlparse returns unexpected parts)
     url_parts = urllib.parse.urlparse(url)
 
-    # Note: this preserves multiple occurents of any fields.
-    #  e.g. 'a=1&b=s$a=2' -> [['a','1'],['b'.'s'],['a','2']]
-    query_params = [e.split('=') for e in url_parts.query.split('&')]
+    query_params = []
+    if url_parts.query:
+        # Note: this preserves multiple occurents of any fields.
+        #  e.g. 'a=1&b=s$a=2' -> [['a','1'],['b'.'s'],['a','2']]
+        query_params = [e.split('=') for e in url_parts.query.split('&')]
 
-    # don't allow _ts, _k, or _s be in the in unsigned request
-    if any([e[0] in REQUIRED_REQUEST_PARAMS_SET for e in query_params]):
-        raise ValueError("Request query parameters can't include '{}'".format(
-            "', '".join(REQUIRED_REQUEST_PARAMS_SET)))
+        # don't allow _ts, _k, or _s be in the in unsigned request
+        if any([e[0] in REQUIRED_REQUEST_PARAMS_SET for e in query_params]):
+            raise ValueError("Request query parameters can't include '{}'".format(
+                "', '".join(REQUIRED_REQUEST_PARAMS_SET)))
 
     # Add timestamp and key
     query_params.extend([
@@ -47,7 +51,7 @@ def sign_request(url, key, secret):
         ('_k', key)
     ])
 
-    query_string = '&'.join(sorted(["%s=%s"%(k,v) for (k,v) in query_params]))
+    query_string = '&'.join(sorted(["%s=%s"%(e[0], e[1]) for e in query_params]))
 
     str_to_hash = secret.encode() + (''.join([url_parts.path, query_string])).encode()
     signature = hashlib.sha256(str_to_hash).hexdigest()
