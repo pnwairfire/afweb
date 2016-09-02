@@ -1,0 +1,102 @@
+#! /usr/bin/env python
+
+__author__ = "Joel Dubowy"
+
+
+import logging
+import os
+import sys
+
+import tornado.ioloop
+import tornado.web
+from afscripting import args as scripting_args
+
+root_dir = os.path.abspath(os.path.join(sys.path[0], '../../'))
+sys.path.insert(0, root_dir)
+from afweb import auth
+
+OPTIONAL_ARGS = [
+    {
+        'short': '-p',
+        'long': '--port',
+        'help': 'run the server listening on speciied port; default 8889',
+        'default': 8882
+    },
+    {
+        'short': '-d',
+        'long': '--debug',
+        'help': 'run the server in debug mode (with auto-reloading of code, etc.)',
+        'action': "store_true",
+        'default': False
+    }
+
+]
+
+# Note: the trailing space seems to be the only way to add an extra trailing line
+EPILOG_STR = """
+Examples
+
+ Localsave (debug mode):
+    $ ./dev/scripts/dummy-tornado-webservice-w-auth
+    $ ./dev/scripts/dummy-tornado-webservice-w-auth -d --log-level=DEBUG
+
+ """
+
+DEFAULT_LOG_FORMAT = "%(asctime)s %(name)s %(levelname)s %(filename)s#%(funcName)s: %(message)s"
+def configure_logging(log_level_str, log_file, log_format):
+    log_level = getattr(logging, log_level_str)
+    logging.basicConfig(level=log_level, format=log_format)
+
+    log_file = log_file
+    if log_file:
+        fh = logging.FileHandler(log_file)
+        fh.setFormatter(logging.Formatter(log_format))
+        logging.getLogger().addHandler(fh)
+
+class Ping(tornado.web.RequestHandler, metaclass=auth.TornadoWebRequestAuthMetaClass):
+
+    def get(self):
+        # TODO: return anything else?
+        self.write({"msg": "pong"})
+ROUTES = [
+    (r"/api/ping/?", Ping)
+]
+
+def main(port, log_level_str, log_file, log_format, debug):
+    """Main method for starting fire spider tornado web service
+
+    args:
+     - port -- port to listen on
+     - mongodb_url -- url to acess mongodb
+     - database_name -- name of database containing fires collection
+
+    kwargs:
+     - log_level_str -- DEBUG, INFO, etc.
+     - log_file -- file to write logs to
+     - log_format -- format of log messages
+     - debug -- whether or not to run in debug mode (with code
+        auto-reloading etc)
+    """
+    log_level_str = log_level_str or 'WARNING'
+    log_format = log_format or DEFAULT_LOG_FORMAT
+    configure_logging(log_level_str, log_file, log_format)
+
+    application = tornado.web.Application(ROUTES, debug=debug)
+
+    logging.info(' * Debug mode: {}'.format(debug))
+    logging.info(' * Port: {}'.format(port))
+
+    application.listen(port)
+    tornado.ioloop.IOLoop.current().start()
+
+if __name__ == "__main__":
+    parser = scripting_args.ArgumentParser()
+    parser.epilog = EPILOG_STR
+    parser.formatter_class = scripting_args.RawTextHelpFormatter
+    scripting_args.add_arguments(parser, OPTIONAL_ARGS)
+    # Use afscripting to add logging options to the parser object,
+    # but we'll configure logging oureselves in app.main
+    scripting_args.add_logging_options(parser)
+    args = parser.parse_args()
+    main(args.port, args.log_level, args.log_file, args.log_message_format,
+        args.debug)
