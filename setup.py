@@ -9,7 +9,9 @@ setup(
     author='Joel Dubowy',
     author_email='jdubowy@gmail.com',
     packages=find_packages(),
-    scripts=[],
+    scripts=[
+        'bin/sign-request'
+    ],
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",
@@ -21,6 +23,7 @@ setup(
     url='https://github.com/pnwairfire/afweb',
     description='Utilities for web applications',
     install_requires=[
+        "afscripting==1.0.0",
         'tornado==4.3'
     ],
     dependency_links=[

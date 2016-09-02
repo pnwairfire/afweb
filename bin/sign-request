@@ -1,0 +1,113 @@
+#!/usr/bin/env python
+
+"""log-status.py: Script to ....
+
+Example calls:
+ > ./bin/statuslogging/log-status.py \
+    -e http://status-log-production.herokuapp.com/status-logs \
+    -k abc123 -s dsfjerw -p BlueSky -o Ok -f foo=bar -f baz=foo -v
+"""
+
+__author__      = "Joel Dubowy"
+
+import datetime
+import logging
+import re
+import sys
+import traceback
+import urllib.request
+
+from afscripting import (
+    args as scripting_args,
+    utils as scripting_utils
+)
+
+try:
+    from afweb import auth
+except:
+    import os
+    root_dir = os.path.abspath(os.path.join(sys.path[0], '../../'))
+    sys.path.insert(0, root_dir)
+    from afweb import auth
+
+# Note: though some argue that all required parameters should be specified as
+# positional arguments, I prefer using 'options' flags, even though this
+# means that there are required 'options', which is oxymoronic.
+
+REQUIRED_ARGS = [
+    {
+        'short': '-u',
+        'long': '--url',
+        'help': 'request url'
+    },
+    {
+        'short': '-k',
+        'long': '--api-key',
+        'help': 'api key used to make requests to status logger service (required)'
+    },
+    {
+        'short': '-s',
+        'long': '--api-secret',
+        'help': 'api secret used to make requests to status logger service (required)'
+    }
+]
+OPTIONAL_ARGS = [
+    {
+        'short': '-X',
+        'long': '--request',
+        'help': 'http request method'
+    },
+    {
+        'short': '-d',
+        'long': '--data',
+        'help': 'data to post'
+    },
+    {
+        'short': '-t',
+        'long': '--timeout',
+        'type': int,
+        'default': 3 # seconds
+    }
+]
+
+EXAMPLES = """
+Examples:
+
+ $ sign-request --log-level=DEBUG -k asd123 -s gfdtre \\
+    -u "http://foo.com/a/b" -X POST
+ $ sign-request --log-level=DEBUG -k asd123 -s gfdtre \\
+    -u "http://foo.com/a/b?z=sdd&fdf=we"
+ $ sign-request --log-level=DEBUG -k asd123 -s gfdtre \\
+    -u "http://foo.com/a/b?z=sdd&fdf=we" -d '{"foo":"bar"}'
+
+Example with archiving option that replaces and timestamps
+if different than previously cached file, and deletes otherwise
+
+ $ get-hms-kml smoke -o smoke-tmp.kml -a
+"""
+
+def error_handler(e):
+    scripting_utils.exit_with_msg("Failed to submit status: %s" % (e))
+
+def main():
+    parser, args = scripting_args.parse_args(REQUIRED_ARGS, OPTIONAL_ARGS,
+        epilog=EXAMPLES)
+
+    if not args.request:
+        args.request = 'POST' if args.data else 'GET'
+
+    try:
+        new_url = auth.sign_request(args.url, args.api_key, args.api_secret)
+        req = urllib.request.Request(new_url, args.data)
+        t = datetime.datetime.now()
+        resp = urllib.request.urlopen(req, None, args.timeout)  #.read()
+        logging.info("It took %f seconds to submit the request" % (
+            (datetime.datetime.now() - t).seconds))
+        import pdb;pdb.set_trace()
+
+    except Exception as e:
+        logging.debug(traceback.format_exc())
+        scripting_utils.exit_with_msg(e)
+
+if __name__ == "__main__":
+    main()
