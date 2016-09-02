@@ -100,10 +100,15 @@ def main():
         new_url = auth.sign_request(args.url, args.api_key, args.api_secret)
         req = urllib.request.Request(new_url, args.data)
         t = datetime.datetime.now()
-        resp = urllib.request.urlopen(req, None, args.timeout)  #.read()
+        try:
+            resp = urllib.request.urlopen(req, None, args.timeout)
+            # TODO: is there a way to pipe the response body to stdout?
+            sys.stdout.write(resp.read())
+        except urllib.error.HTTPError as e:
+            logging.error(e)
+
         logging.info("It took %f seconds to submit the request" % (
             (datetime.datetime.now() - t).seconds))
-        import pdb;pdb.set_trace()
 
     except Exception as e:
         logging.debug(traceback.format_exc())
