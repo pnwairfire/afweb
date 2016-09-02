@@ -97,7 +97,7 @@ def main():
         args.request = 'POST' if args.data else 'GET'
 
     try:
-        new_url = auth.sign_request(args.url, args.api_key, args.api_secret)
+        new_url = auth.sign_url(args.url, args.api_key, args.api_secret)
         req = urllib.request.Request(new_url, args.data)
         t = datetime.datetime.now()
         try:

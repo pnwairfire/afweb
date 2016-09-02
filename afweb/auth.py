@@ -29,7 +29,7 @@ REQUIRED_REQUEST_PARAMS = {
 REQUIRED_REQUEST_PARAMS_SET = set(REQUIRED_REQUEST_PARAMS.values())
 TIMESTAMP_FORMAT = "%Y%m%dT%H%M%SZ"
 
-def sign_request(url, key, secret):
+def sign_url(url, key, secret):
     # TODO: if url doesn't have 'http[s://', add it (otherwise
     #   urllib.parse.urlparse returns unexpected parts)
     url_parts = urllib.parse.urlparse(url)
@@ -51,12 +51,21 @@ def sign_request(url, key, secret):
         ('_k', key)
     ])
 
-    query_string = '&'.join(sorted(["%s=%s"%(e[0], e[1]) for e in query_params]))
-
-    str_to_hash = secret.encode() + (''.join([url_parts.path, query_string])).encode()
-    signature = hashlib.sha256(str_to_hash).hexdigest()
+    signature, query_string = compute_signature(
+        url_parts.path, query_params, key, secret)
     return '{}://{}{}?{}&_s={}'.format(url_parts.scheme, url_parts.netloc,
         url_parts.path, query_string, signature)
+
+QUERY_SIG_EXCLUDES = ['_s']
+
+def compute_signature(path, query_params, key, secret):
+
+    query_string = '&'.join(sorted([
+        "%s=%s"%(e[0], e[1]) for e in query_params]))
+
+    str_to_hash = secret.encode() + (''.join([path, query_string])).encode()
+    return hashlib.sha256(str_to_hash).hexdigest(), query_string
+
 
 class TornadoWebRequestAuthMetaClass(type):
 
