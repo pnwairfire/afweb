@@ -21,7 +21,7 @@ or http:
 Run the following to install required python packages as well
 as useful dev packages:
 
-    pip install -r requirements.txt
+    pip install --trusted-host pypi.smoke.airfire.org -r requirements.txt
     pip install -r requirements-dev.txt
 
 ### Setup Environment

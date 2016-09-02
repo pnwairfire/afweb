@@ -8,23 +8,131 @@ import datetime
 import hashlib
 import os
 import time
+import types
+import urllib.parse
 from functools import wraps
 
+import tornado.log
+import tornado.web
+
 __all__ = [
+    'TornadoWebRequestAuthMetaClass',
     'authenticate',
     'basic_auth'
 ]
 
+REQUIRED_REQUEST_PARAMS = {
+    'timestamp': '_ts',
+    'api_key': '_k',
+    'signature': '_s'
+}
+REQUIRED_REQUEST_PARAMS_SET = set(REQUIRED_REQUEST_PARAMS.values())
+TIMESTAMP_FORMAT = "%Y%m%dT%H%M%SZ"
+
+def sign_request(url, key, secret):
+    url_parts = urllib.parse.urlparse(url)
+
+    # Note: this preserves multiple occurents of any fields.
+    #  e.g. 'a=1&b=s$a=2' -> [['a','1'],['b'.'s'],['a','2']]
+    query_params = [e.split('=') for e in url_parts.query.split('&')]
+
+    # don't allow _ts, _k, or _s be in the in unsigned request
+    if any([e[0] in REQUIRED_REQUEST_PARAMS_SET for e in query_params]):
+        raise ValueError("Request query parameters can't include '{}'".format(
+            "', '".join(REQUIRED_REQUEST_PARAMS_SET)))
+
+    # Add timestamp and key
+    query_params.extend([
+        ('_ts', datetime.datetime.utcnow().strftime(TIMESTAMP_FORMAT)),
+        ('_k', key)
+    ])
+
+    query_string = '&'.join(sorted(["%s=%s"%(k,v) for (k,v) in query_params]))
+
+    str_to_hash = secret.encode() + (''.join([url_parts.path, query_string])).encode()
+    signature = hashlib.sha256(str_to_hash).hexdigest()
+    return '{}://{}{}?{}&_s={}'.format(url_parts.scheme, url_parts.netloc,
+        url_parts.path, query_string, signature)
+
+class TornadoWebRequestAuthMetaClass(type):
+
+    # def __init__(self, *args, **kwargs):
+    #     tornado.log.gen_log.warn("in TornadoWebRequestAuthMetaClass.__init__")
+    #     super(TornadoWebRequestAuthMetaClass, self).__init__(*args, **kwargs)
+
+    HTTP_METHODS = ('get', 'post', 'put', 'delete')
+
+    def __new__(meta, classname, supers, classdict):
+        tornado.log.gen_log.debug("in TornadoWebRequestAuthMetaClass.__new__")
+        for name, elem in classdict.items():
+            if type(elem) is types.FunctionType and name in meta.HTTP_METHODS:
+                classdict[name] = meta.authenticator(classdict[name])
+        return super(TornadoWebRequestAuthMetaClass, meta).__new__(
+            meta, classname, supers, classdict)
+
+    # TODO: get this working as a class (with __init__ and __call__ methods)
+    #    (When I implmented as a class, the first arg to decorated function
+    #    wasn't the request handler class, which we need in order to access
+    #    the request object
+    def authenticator(func):
+
+        def _get_request_arguments(request_handler):
+            return {
+                k: v[0].decode('ascii') if len(v) == 1
+                    else ','.join([e.decode('ascii') for e in v])
+                    for k,v in request_handler.request.query_arguments.items()
+            }
+
+        def _check_for_auth_params(request_args):
+            if not REQUIRED_REQUEST_PARAMS_SET.issubset(request_args):
+                message = "Request must include parameters '%s' for authentication" % (
+                    "', '".join(REQUIRED_REQUEST_PARAMS_SET))
+                # TODO: include message in response (not just in log)
+                raise tornado.web.HTTPError(401, message)
+
+        RECENCY_THRESHOLD = datetime.timedelta(minutes=10)
+
+        def _check_recency(request_args):
+            ts_str = request_args[REQUIRED_REQUEST_PARAMS['timestamp']]
+            ts = datetime.datetime.strptime(ts_str, TIMESTAMP_FORMAT)
+            # Note: Using time.time() to get current time instead of
+            # datetime.datetime.utcnow() to enable use of timecop in tests
+            now = datetime.datetime.fromtimestamp(time.time())
+            if abs(ts - now) > RECENCY_THRESHOLD:
+                raise tornado.web.HTTPError(401, "Timestamp is not recent")
+
+        async def _look_up_secret(self, request_args):
+            # TODO: look it up in mongodb
+            return 'e80556c6-70d8-11e6-a3ff-3c15c2c6639e'
+
+        QUERY_SIG_EXCLUDES = ['_s']
+        def _compute_signature(request_args, request_path, secret):
+            # TODO: urlencode or deencode...need to sign same thing client signs
+            str_to_hash = request_path
+            str_to_hash += '&'.join(sorted([
+                "%s=%s"%(k,v) for (k,v) in request_args.items()
+                    if k not in QUERY_SIG_EXCLUDES
+            ]))
+            str_to_hash = secret.encode() + str_to_hash.encode()
+            return hashlib.sha256(str_to_hash).hexdigest()
+
+        async def _authed(request_handler, *args, **kwargs):
+            request_args = _get_request_arguments(request_handler)
+            _check_for_auth_params(request_args)
+            _check_recency(request_args)
+            secret = await _look_up_secret(request_args)
+            signature = request_args[REQUIRED_REQUEST_PARAMS['signature']]
+            computed_signature = _compute_signature(
+                request_args, request_handler.request.path, secret)
+
+            if signature != computed_signature:
+                raise tornado.web.HTTPError(401, "Invalid signature.")
+
+            return _func(*args, **kwargs) # TODO: use `await`?
+        return _authed
+
 
 class authenticate(object):
-
-    REQUIRED_REQUEST_PARAMS = {
-        'timestamp': '_ts',
-        'api_key': '_k',
-        'signature': '_s'
-    }
-    REQUIRED_REQUEST_PARAMS_SET = set(REQUIRED_REQUEST_PARAMS.values())
-    DEFAULT_TIMESTAMP_FORMAT = "%Y%m%dT%H%M%SZ"
 
     def __init__(self, enabled, api_clients, request_args_getter, request_path_getter,
             request_aborter, timestamp_format=None):
@@ -35,7 +143,6 @@ class authenticate(object):
         request_args_getter -- a function that returns the request args
             dictionary
         request_path_getter -- a function that returns the request path
-            dictionary
         request_aborter -- a function that aborts the request; takes two
             optional arguments - http status (which should defaults to 401)
             and message (which should default to authorized)
@@ -45,7 +152,7 @@ class authenticate(object):
         self.request_args_getter = request_args_getter
         self.request_path_getter = request_path_getter
         self.request_aborter = request_aborter
-        self.timestamp_format = timestamp_format or self.DEFAULT_TIMESTAMP_FORMAT
+        self.timestamp_format = timestamp_format or TIMESTAMP_FORMAT
 
     def __call__(self, f):
         @wraps(f)
@@ -65,9 +172,9 @@ class authenticate(object):
         return decorated
 
     def _check_for_auth_params(self):
-        if not self.REQUIRED_REQUEST_PARAMS_SET.issubset(list(self.request_args_getter().keys())):
+        if not REQUIRED_REQUEST_PARAMS_SET.issubset(list(self.request_args_getter().keys())):
             message = "Request must include parameters '%s' for authentication" % (
-                "', '".join(self.REQUIRED_REQUEST_PARAMS_SET))
+                "', '".join(REQUIRED_REQUEST_PARAMS_SET))
             self.request_aborter(401, message=message)
 
 
@@ -75,7 +182,7 @@ class authenticate(object):
     RECENCY_THRESHOLD = datetime.timedelta(minutes=10)
 
     def _check_recency(self):
-        ts_str = self.request_args_getter()[self.REQUIRED_REQUEST_PARAMS['timestamp']]
+        ts_str = self.request_args_getter()[REQUIRED_REQUEST_PARAMS['timestamp']]
         ts = datetime.datetime.strptime(ts_str, self.timestamp_format)
         # Note: Using time.time() to get current time instead of
         # datetime.datetime.utcnow() to enable use of timecop in tests
@@ -84,7 +191,7 @@ class authenticate(object):
             self.request_aborter(401, message="Timestamp is not recent")
 
     def _look_up_secret(self):
-        api_key = self.request_args_getter()[self.REQUIRED_REQUEST_PARAMS['api_key']]
+        api_key = self.request_args_getter()[REQUIRED_REQUEST_PARAMS['api_key']]
         if api_key not in self.api_clients:
             self.request_aborter(401, message='API key does not exist')
 
@@ -92,7 +199,7 @@ class authenticate(object):
 
 
     def _get_request_signature(self):
-        return self.request_args_getter()[self.REQUIRED_REQUEST_PARAMS['signature']]
+        return self.request_args_getter()[REQUIRED_REQUEST_PARAMS['signature']]
 
     QUERY_SIG_EXCLUDES = ['_s']
     def _compute_signature(self, secret):

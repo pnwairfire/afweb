@@ -19,5 +19,11 @@ setup(
         "Operating System :: MacOS"
     ],
     url='https://github.com/pnwairfire/afweb',
-    description='Utilities for web applications'
+    description='Utilities for web applications',
+    install_requires=[
+        'tornado==4.3'
+    ],
+    dependency_links=[
+        "https://pypi.smoke.airfire.org/simple/afscripting/"
+    ]
 )
