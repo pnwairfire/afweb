@@ -90,14 +90,17 @@ class TornadoWebRequestAuthMetaClass(type):
     def authenticator(func):
 
         def _get_request_arguments(request_handler):
-            return {
-                k: v[0].decode('ascii') if len(v) == 1
-                    else ','.join([e.decode('ascii') for e in v])
-                    for k,v in request_handler.request.query_arguments.items()
-            }
+            request_args = []
+            for k,v in request_handler.request.query_arguments.items():
+                if len(v) == 1:
+                    request_args.append((k, v[0].decode('ascii')))
+                else:
+                    request_args.extend([(k, _v.decode('ascii')) for _v in v])
+            return request_args
 
         def _check_for_auth_params(request_args):
-            if not REQUIRED_REQUEST_PARAMS_SET.issubset(request_args):
+            args_keys = set([e[0] for e in request_args])
+            if not REQUIRED_REQUEST_PARAMS_SET.issubset(args_keys):
                 message = "Request must include parameters '%s' for authentication" % (
                     "', '".join(REQUIRED_REQUEST_PARAMS_SET))
                 # TODO: include message in response (not just in log)
@@ -105,9 +108,19 @@ class TornadoWebRequestAuthMetaClass(type):
 
         RECENCY_THRESHOLD = datetime.timedelta(minutes=10)
 
+        def _get_arg_val(request_args, key, pretty_key):
+            ts_vals = [e[1] for e in request_args if e[0] == key]
+            if len(ts_vals) != 1:
+                raise tornado.web.HTTPError(401,
+                    'request must contain a single {} - {}'.format(
+                    pretty_key, key))
+            return ts_vals[0]
+
+
         def _check_recency(request_args):
-            ts_str = request_args[REQUIRED_REQUEST_PARAMS['timestamp']]
-            ts = datetime.datetime.strptime(ts_str, TIMESTAMP_FORMAT)
+            ts_val = _get_arg_val(request_args,
+                REQUIRED_REQUEST_PARAMS['timestamp'], 'timestamp')
+            ts = datetime.datetime.strptime(ts_val, TIMESTAMP_FORMAT)
             # Note: Using time.time() to get current time instead of
             # datetime.datetime.utcnow() to enable use of timecop in tests
             now = datetime.datetime.fromtimestamp(time.time())
@@ -115,19 +128,12 @@ class TornadoWebRequestAuthMetaClass(type):
                 raise tornado.web.HTTPError(401, "Timestamp is not recent")
 
         async def _look_up_secret(self, request_args):
-            # TODO: look it up in mongodb
-            return 'e80556c6-70d8-11e6-a3ff-3c15c2c6639e'
+            key = _get_arg_val(request_args,
+                REQUIRED_REQUEST_PARAMS['api_key'], 'api key')
 
-        QUERY_SIG_EXCLUDES = ['_s']
-        def _compute_signature(request_args, request_path, secret):
-            # TODO: urlencode or deencode...need to sign same thing client signs
-            str_to_hash = request_path
-            str_to_hash += '&'.join(sorted([
-                "%s=%s"%(k,v) for (k,v) in request_args.items()
-                    if k not in QUERY_SIG_EXCLUDES
-            ]))
-            str_to_hash = secret.encode() + str_to_hash.encode()
-            return hashlib.sha256(str_to_hash).hexdigest()
+            # TODO: look it up
+
+            return 'e80556c6-70d8-11e6-a3ff-3c15c2c6639e'
 
         async def _authed(request_handler, *args, **kwargs):
             request_args = _get_request_arguments(request_handler)
@@ -135,8 +141,8 @@ class TornadoWebRequestAuthMetaClass(type):
             _check_recency(request_args)
             secret = await _look_up_secret(request_args)
             signature = request_args[REQUIRED_REQUEST_PARAMS['signature']]
-            computed_signature = _compute_signature(
-                request_args, request_handler.request.path, secret)
+            computed_signature, query_string = compute_signature(
+                request_handler.request.path, request_args, secret)
 
             if signature != computed_signature:
                 raise tornado.web.HTTPError(401, "Invalid signature.")
