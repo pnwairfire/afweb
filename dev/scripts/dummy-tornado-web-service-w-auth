@@ -36,10 +36,13 @@ OPTIONAL_ARGS = [
 EPILOG_STR = """
 Examples
 
- Localsave (debug mode):
     $ ./dev/scripts/dummy-tornado-webservice-w-auth
     $ ./dev/scripts/dummy-tornado-webservice-w-auth -d --log-level=DEBUG
 
+  Then use `sign-request` to submit a request:
+
+    $ ./bin/sign-request --log-level=debug -u http://localhost:8882/ \\
+            -k sdf -s e80556c6-70d8-11e6-a3ff-3c15c2c6639e
  """
 
 DEFAULT_LOG_FORMAT = "%(asctime)s %(name)s %(levelname)s %(filename)s#%(funcName)s: %(message)s"
@@ -59,7 +62,7 @@ class Ping(tornado.web.RequestHandler, metaclass=auth.TornadoWebRequestAuthMetaC
         # TODO: return anything else?
         self.write({"msg": "pong"})
 ROUTES = [
-    (r"/api/ping/?", Ping)
+    (r".*", Ping)
 ]
 
 def main(port, log_level_str, log_file, log_format, debug):
