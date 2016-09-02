@@ -13,7 +13,6 @@ from afscripting import args as scripting_args
 
 root_dir = os.path.abspath(os.path.join(sys.path[0], '../../'))
 sys.path.insert(0, root_dir)
-from afweb import auth
 
 OPTIONAL_ARGS = [
     {
@@ -56,15 +55,6 @@ def configure_logging(log_level_str, log_file, log_format):
         fh.setFormatter(logging.Formatter(log_format))
         logging.getLogger().addHandler(fh)
 
-class Ping(tornado.web.RequestHandler, metaclass=auth.TornadoWebRequestAuthMetaClass):
-
-    def get(self):
-        # TODO: return anything else?
-        self.write({"msg": "pong"})
-ROUTES = [
-    (r".*", Ping)
-]
-
 def main(port, log_level_str, log_file, log_format, debug):
     """Main method for starting fire spider tornado web service
 
@@ -84,7 +74,19 @@ def main(port, log_level_str, log_file, log_format, debug):
     log_format = log_format or DEFAULT_LOG_FORMAT
     configure_logging(log_level_str, log_file, log_format)
 
-    application = tornado.web.Application(ROUTES, debug=debug)
+    # delayed import so that logging is configured first
+    from afweb import auth
+    class Ping(tornado.web.RequestHandler, metaclass=auth.TornadoWebRequestAuthMetaClass):
+
+        def get(self):
+            # TODO: return anything else?
+            self.write({"msg": "pong"})
+
+    routes = [
+        (r".*", Ping)
+    ]
+
+    application = tornado.web.Application(routes, debug=debug)
 
     logging.info(' * Debug mode: {}'.format(debug))
     logging.info(' * Port: {}'.format(port))

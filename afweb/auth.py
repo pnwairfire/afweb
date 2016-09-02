@@ -122,8 +122,10 @@ class TornadoWebRequestAuthMetaClass(type):
             ts_val = _get_arg_val(request_args,
                 REQUIRED_REQUEST_PARAMS['timestamp'], 'timestamp')
             ts = datetime.datetime.strptime(ts_val, TIMESTAMP_FORMAT)
-            # Note: Using time.time() to get current time instead of
-            # datetime.datetime.utcnow() to enable use of timecop in tests
+            # Note: This previously used time.time() to get current time
+            #   instead of datetime.datetime.utcnow() to enable use of
+            #   timecop in tests, but time.time returns system clock time
+            #   which may in the be local timezone
             #now = datetime.datetime.fromtimestamp(time.time())
             now = datetime.datetime.utcnow()
             if abs(ts - now) > RECENCY_THRESHOLD:
