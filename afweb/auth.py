@@ -52,18 +52,19 @@ def sign_url(url, key, secret):
     ])
 
     signature, query_string = compute_signature(
-        url_parts.path, query_params, key, secret)
+        url_parts.path, query_params, secret)
     return '{}://{}{}?{}&_s={}'.format(url_parts.scheme, url_parts.netloc,
         url_parts.path, query_string, signature)
 
 QUERY_SIG_EXCLUDES = ['_s']
 
-def compute_signature(path, query_params, key, secret):
-
+def compute_signature(path, query_params, secret):
     query_string = '&'.join(sorted([
-        "%s=%s"%(e[0], e[1]) for e in query_params]))
+        "%s=%s"%(e[0], e[1]) for e in query_params
+        if e[0] != REQUIRED_REQUEST_PARAMS['signature']]))
 
     str_to_hash = secret.encode() + (''.join([path, query_string])).encode()
+    tornado.log.gen_log.debug('string to hash %s', str_to_hash)
     return hashlib.sha256(str_to_hash).hexdigest(), query_string
 
 
@@ -123,11 +124,12 @@ class TornadoWebRequestAuthMetaClass(type):
             ts = datetime.datetime.strptime(ts_val, TIMESTAMP_FORMAT)
             # Note: Using time.time() to get current time instead of
             # datetime.datetime.utcnow() to enable use of timecop in tests
-            now = datetime.datetime.fromtimestamp(time.time())
+            #now = datetime.datetime.fromtimestamp(time.time())
+            now = datetime.datetime.utcnow()
             if abs(ts - now) > RECENCY_THRESHOLD:
                 raise tornado.web.HTTPError(401, "Timestamp is not recent")
 
-        async def _look_up_secret(self, request_args):
+        async def _look_up_secret(request_args):
             key = _get_arg_val(request_args,
                 REQUIRED_REQUEST_PARAMS['api_key'], 'api key')
 
@@ -140,14 +142,15 @@ class TornadoWebRequestAuthMetaClass(type):
             _check_for_auth_params(request_args)
             _check_recency(request_args)
             secret = await _look_up_secret(request_args)
-            signature = request_args[REQUIRED_REQUEST_PARAMS['signature']]
+            signature = _get_arg_val(request_args,
+                REQUIRED_REQUEST_PARAMS['signature'], 'signature')
             computed_signature, query_string = compute_signature(
                 request_handler.request.path, request_args, secret)
 
             if signature != computed_signature:
                 raise tornado.web.HTTPError(401, "Invalid signature.")
 
-            return _func(*args, **kwargs) # TODO: use `await`?
+            return func(request_handler, *args, **kwargs) # TODO: use `await`?
         return _authed
 
 
