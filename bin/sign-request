@@ -103,7 +103,7 @@ def main():
         try:
             resp = urllib.request.urlopen(req, None, args.timeout)
             # TODO: is there a way to pipe the response body to stdout?
-            sys.stdout.write(resp.read())
+            sys.stdout.buffer.write(resp.read())
         except urllib.error.HTTPError as e:
             logging.error(e)
 
