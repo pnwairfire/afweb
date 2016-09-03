@@ -24,7 +24,9 @@ setup(
     description='Utilities for web applications',
     install_requires=[
         "afscripting==1.0.0",
-        'tornado==4.3'
+        'tornado==4.3',
+        'Flask==0.10.1',
+        'Flask-RESTful==0.2.12'
     ],
     dependency_links=[
         "https://pypi.smoke.airfire.org/simple/afscripting/"
