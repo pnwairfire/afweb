@@ -72,6 +72,8 @@ def compute_signature(path, query_params, secret):
 #    wasn't the request handler class, which we need in order to access
 #    the request object
 def authenticator(func):
+    """Generic decorator to be used by framework specific metaclasses, below
+    """
 
     def _check_for_auth_params(request_args):
         args_keys = set([e[0] for e in request_args])
@@ -79,20 +81,20 @@ def authenticator(func):
             message = "Request must include parameters '%s' for authentication" % (
                 "', '".join(REQUIRED_REQUEST_PARAMS_SET))
             # TODO: include message in response (not just in log)
-            raise tornado.web.HTTPError(401, message)
+            request_handler._request_aborter(401, message)
 
     RECENCY_THRESHOLD = datetime.timedelta(minutes=10)
 
     def _get_arg_val(request_args, key, pretty_key):
         ts_vals = [e[1] for e in request_args if e[0] == key]
         if len(ts_vals) != 1:
-            raise tornado.web.HTTPError(401,
+            request_handler._request_aborter(401,
                 'request must contain a single {} - {}'.format(
                 pretty_key, key))
         return ts_vals[0]
 
 
-    def _check_recency(request_args):
+    def _check_recency(request_handler, request_args):
         ts_val = _get_arg_val(request_args,
             REQUIRED_REQUEST_PARAMS['timestamp'], 'timestamp')
         ts = datetime.datetime.strptime(ts_val, TIMESTAMP_FORMAT)
@@ -103,7 +105,7 @@ def authenticator(func):
         #now = datetime.datetime.fromtimestamp(time.time())
         now = datetime.datetime.utcnow()
         if abs(ts - now) > RECENCY_THRESHOLD:
-            raise tornado.web.HTTPError(401, "Timestamp is not recent")
+            request_handler._request_aborter(401, "Timestamp is not recent")
 
     async def _look_up_secret(request_args):
         key = _get_arg_val(request_args,
@@ -114,27 +116,30 @@ def authenticator(func):
         return 'e80556c6-70d8-11e6-a3ff-3c15c2c6639e'
 
     async def _authed(request_handler, *args, **kwargs):
-        import pdb;pdb.set_trace()
         request_args = request_handler._get_request_arguments()
         _check_for_auth_params(request_args)
-        _check_recency(request_args)
+        _check_recency(request_handler, request_args)
         secret = await _look_up_secret(request_args)
         signature = _get_arg_val(request_args,
             REQUIRED_REQUEST_PARAMS['signature'], 'signature')
         computed_signature, query_string = compute_signature(
-            request_handler.request.path, request_args, secret)
+            request_handler._get_request_path(), request_args, secret)
 
         if signature != computed_signature:
-            raise tornado.web.HTTPError(401, "Invalid signature.")
+            request_handler._request_aborter(401, "Invalid signature.")
 
         return func(request_handler, *args, **kwargs) # TODO: use `await`?
     return _authed
 
 
+##
+## Framework specific metaclasses for adding authenticaiton to request handlers
+##
+
 class TornadoWebRequestAuthMetaClass(type):
 
     @staticmethod
-    def _get_tornado_request_arguments(request_handler):
+    def _get_request_arguments(request_handler):
         request_args = []
         for k,v in request_handler.request.query_arguments.items():
             if len(v) == 1:
@@ -142,6 +147,14 @@ class TornadoWebRequestAuthMetaClass(type):
             else:
                 request_args.extend([(k, _v.decode('ascii')) for _v in v])
         return request_args
+
+    @staticmethod
+    def _get_request_path(request_handler):
+        return request_handler.request.path
+
+    @staticmethod
+    def _request_aborter(http_status, error_message):
+        request_handler._request_aborter(http_status, error_message)
 
     # def __init__(self, name, bases, attrs):
     #     tornado.log.gen_log.debug("in TornadoWebRequestAuthMetaClass.__init__")
@@ -154,7 +167,9 @@ class TornadoWebRequestAuthMetaClass(type):
         for name, elem in classdict.items():
             if type(elem) is types.FunctionType and name in meta.HTTP_METHODS:
                 classdict[name] = authenticator(classdict[name])
-        classdict['_get_request_arguments'] = meta._get_tornado_request_arguments
+        classdict['_get_request_arguments'] = meta._get_request_arguments
+        classdict['_get_request_path'] = meta._get_request_path
+        classdict['_request_aborter'] = meta._request_aborter
         return super(TornadoWebRequestAuthMetaClass, meta).__new__(
             meta, classname, supers, classdict)
 
