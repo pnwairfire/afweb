@@ -157,8 +157,8 @@ class TornadoWebRequestAuthMetaClass(type):
         return request_handler.request.path
 
     @staticmethod
-    def _request_aborter(http_status, error_message):
-        request_handler._request_aborter(http_status, error_message)
+    def _request_aborter(request_handler, http_status, error_message):
+        raise tornado.web.HTTPError(http_status, error_message)
 
     # def __init__(self, name, bases, attrs):
     #     tornado.log.gen_log.debug("in TornadoWebRequestAuthMetaClass.__init__")
@@ -184,14 +184,22 @@ class FlaskRequestAuthMetaClass(type):
         # TODO: form list of tuples from request.args
         pass
 
+    @staticmethod
+    def _get_request_path(request_handler):
+        return request.path
+
+    @staticmethod
+    def _request_aborter(request_handler, http_status, error_message):
+        abort(http_status, message=error_message)
+
     def __new__(meta, classname, supers, classdict):
         tornado.log.gen_log.debug("in FlaskRequestAuthMetaClass.__new__")
         for name, elem in classdict.items():
             if type(elem) is types.FunctionType and name in meta.HTTP_METHODS:
                 classdict[name] = authenticator(classdict[name])
         classdict['_get_request_arguments'] = meta._get_request_arguments
-        classdict['_get_request_path'] = lambda: request.path
-        classdict['_request_aborter'] = lambda status=401, message='Unauthorized': abort(status, message=message)
+        classdict['_get_request_path'] = meta._get_request_path
+        classdict['_request_aborter'] = meta._request_aborter
         return super(FlaskRequestAuthMetaClass, meta).__new__(
             meta, classname, supers, classdict)
 
