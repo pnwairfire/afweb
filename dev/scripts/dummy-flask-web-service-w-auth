@@ -1,0 +1,63 @@
+#! /usr/bin/env python
+
+__author__ = "Joel Dubowy"
+__copyright__ = "Copyright 2014, AirFire, PNW, USFS"
+
+import logging
+import os
+import sys
+
+from afweb import auth
+from flask import Flask
+from flask.ext.restful import Api, Resource
+from afscripting import args as scripting_args
+
+root_dir = os.path.abspath(os.path.join(sys.path[0], '../../'))
+sys.path.insert(0, root_dir)
+
+app = Flask(__name__)
+api = Api(app)
+
+class Ping(Resource, metaclass=auth.TornadoWebRequestAuthMetaClass):
+
+    def get(self):
+        return {"msg": "pong"}, 200
+
+
+OPTIONAL_ARGS = [
+    {
+        'short': '-p',
+        'long': '--port',
+        'help': 'run the server listening on speciied port; default 8889',
+        'default': 8882
+    },
+    {
+        'short': '-d',
+        'long': '--debug',
+        'help': 'run the server in debug mode (with auto-reloading of code, etc.)',
+        'action': "store_true",
+        'default': False
+    }
+
+]
+
+# Note: the trailing space seems to be the only way to add an extra trailing line
+EPILOG_STR = """
+Examples
+
+    $ ./dev/scripts/dummy-tornado-webservice-w-auth
+    $ ./dev/scripts/dummy-tornado-webservice-w-auth -d --log-level=DEBUG
+
+  Then use `sign-request` to submit a request:
+
+    $ ./bin/sign-request --log-level=debug -u http://localhost:8882/ \\
+            -k sdf -s e80556c6-70d8-11e6-a3ff-3c15c2c6639e
+ """
+
+api.add_resource(Ping,'/')
+
+if __name__ == "__main__":
+    parser = scripting_args.parse_args([], OPTIONAL_ARGS, epilog=EPILOG_STR)
+    logging.info(' * Debug mode: True')
+    logging.info(' * API Authentication: True')
+    app.run(host='localhost',debug=True, port=8882)
