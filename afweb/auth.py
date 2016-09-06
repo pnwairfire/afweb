@@ -133,6 +133,8 @@ def authenticator(func):
 ## Framework specific metaclasses for adding authenticaiton to request handlers
 ##
 
+HTTP_METHODS = ('get', 'post', 'put', 'delete')
+
 class BaseRequestAuthMetaClass(type):
 
     __metaclass__ = abc.ABCMeta
@@ -164,7 +166,7 @@ class BaseRequestAuthMetaClass(type):
     def __new__(meta, classname, supers, classdict):
         tornado.log.gen_log.debug("in %s.__new__", meta.__name__)
         for name, elem in classdict.items():
-            if type(elem) is types.FunctionType and name in meta.HTTP_METHODS:
+            if type(elem) is types.FunctionType and name in HTTP_METHODS:
                 classdict[name] = authenticator(classdict[name])
         classdict['_get_request_arguments'] = meta._get_request_arguments
         classdict['_get_request_path'] = meta._get_request_path
@@ -206,8 +208,6 @@ class TornadoWebRequestAuthMetaClass(BaseRequestAuthMetaClass):
     # def __init__(self, name, bases, attrs):
     #     tornado.log.gen_log.debug("in TornadoWebRequestAuthMetaClass.__init__")
     #     super(TornadoWebRequestAuthMetaClass, self).__init__(name, bases, attrs)
-
-    HTTP_METHODS = ('get', 'post', 'put', 'delete')
 
 
 class FlaskRequestAuthMetaClass(BaseRequestAuthMetaClass):
