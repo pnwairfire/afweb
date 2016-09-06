@@ -18,7 +18,18 @@ sys.path.insert(0, root_dir)
 app = Flask(__name__)
 api = Api(app)
 
-class Ping(Resource, metaclass=auth.TornadoWebRequestAuthMetaClass):
+
+class AuthBaseClass(Resource, metaclass=auth.FlaskRequestAuthMetaClass):
+
+    async def _look_up_secret(self, request_args):
+        key = self.get_query_arguments('_k')
+        if not key or len(key) != 1:
+            raise tornado.web.HTTPError(400,
+            "Specify '_k' in the query string")
+        # TODO: actually look it up
+        return 'e80556c6-70d8-11e6-a3ff-3c15c2c6639e'
+
+class Ping(AuthBaseClass):
 
     def get(self):
         return {"msg": "pong"}, 200
