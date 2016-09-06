@@ -4,6 +4,7 @@
 
 __author__      = "Joel Dubowy"
 
+import abc
 import datetime
 import hashlib
 import os
@@ -111,19 +112,11 @@ def authenticator(func):
         if abs(ts - now) > RECENCY_THRESHOLD:
             request_handler._request_aborter(401, "Timestamp is not recent")
 
-    async def _look_up_secret(request_args):
-        key = _get_arg_val(request_args,
-            REQUIRED_REQUEST_PARAMS['api_key'], 'api key')
-
-        # TODO: look it up
-
-        return 'e80556c6-70d8-11e6-a3ff-3c15c2c6639e'
-
     async def _authed(request_handler, *args, **kwargs):
         request_args = request_handler._get_request_arguments()
         _check_for_auth_params(request_args)
         _check_recency(request_handler, request_args)
-        secret = await _look_up_secret(request_args)
+        secret = await request_handler._look_up_secret(request_args)
         signature = _get_arg_val(request_args,
             REQUIRED_REQUEST_PARAMS['signature'], 'signature')
         computed_signature, query_string = compute_signature(
@@ -140,7 +133,57 @@ def authenticator(func):
 ## Framework specific metaclasses for adding authenticaiton to request handlers
 ##
 
-class TornadoWebRequestAuthMetaClass(type):
+class BaseRequestAuthMetaClass(type):
+
+    __metaclass__ = abc.ABCMeta
+
+    @abc.abstractmethod
+    def _get_request_arguments(request_handler):
+        """Returns an array of (key, vals) query string paramater tuples
+
+        Note: `vals` can have one or more values; it would have multiple
+        values if the same parameter key were used multiple times in the
+        query string (e.g. 'foo=bar&foo=baz')
+
+        TODO: refactor to expect dict instead?
+        """
+        pass
+
+    @abc.abstractmethod
+    def _get_request_path(request_handler):
+        """Returns string representing url path.
+        """
+        pass
+
+    @abc.abstractmethod
+    def _request_aborter(request_handler, http_status, error_message):
+        """Returns http error response
+        """
+        pass
+
+    def __new__(meta, classname, supers, classdict):
+        tornado.log.gen_log.debug("in %s.__new__", meta.__name__)
+        for name, elem in classdict.items():
+            if type(elem) is types.FunctionType and name in meta.HTTP_METHODS:
+                classdict[name] = authenticator(classdict[name])
+        classdict['_get_request_arguments'] = meta._get_request_arguments
+        classdict['_get_request_path'] = meta._get_request_path
+        classdict['_request_aborter'] = meta._request_aborter
+
+        tornado.log.gen_log.debug("Checking %s for _look_up_secret",
+            classname)
+        if (('_look_up_secret' not in classdict
+                or type(classdict['_look_up_secret']) is not types.FunctionType)
+                and not any([type(getattr(s, '_look_up_secret', None))
+                is types.FunctionType for s in supers])):
+            # TODO: What's the appropriate exception to raise here, in __new__
+            raise RuntimeError("Class {} missing required method "
+                "'_look_up_secret'".format(classname))
+
+        return super(BaseRequestAuthMetaClass, meta).__new__(
+            meta, classname, supers, classdict)
+
+class TornadoWebRequestAuthMetaClass(BaseRequestAuthMetaClass):
 
     @staticmethod
     def _get_request_arguments(request_handler):
@@ -166,18 +209,8 @@ class TornadoWebRequestAuthMetaClass(type):
 
     HTTP_METHODS = ('get', 'post', 'put', 'delete')
 
-    def __new__(meta, classname, supers, classdict):
-        tornado.log.gen_log.debug("in TornadoWebRequestAuthMetaClass.__new__")
-        for name, elem in classdict.items():
-            if type(elem) is types.FunctionType and name in meta.HTTP_METHODS:
-                classdict[name] = authenticator(classdict[name])
-        classdict['_get_request_arguments'] = meta._get_request_arguments
-        classdict['_get_request_path'] = meta._get_request_path
-        classdict['_request_aborter'] = meta._request_aborter
-        return super(TornadoWebRequestAuthMetaClass, meta).__new__(
-            meta, classname, supers, classdict)
 
-class FlaskRequestAuthMetaClass(type):
+class FlaskRequestAuthMetaClass(BaseRequestAuthMetaClass):
 
     @staticmethod
     def _get_request_arguments(request_handler):
@@ -191,17 +224,6 @@ class FlaskRequestAuthMetaClass(type):
     @staticmethod
     def _request_aborter(request_handler, http_status, error_message):
         abort(http_status, message=error_message)
-
-    def __new__(meta, classname, supers, classdict):
-        tornado.log.gen_log.debug("in FlaskRequestAuthMetaClass.__new__")
-        for name, elem in classdict.items():
-            if type(elem) is types.FunctionType and name in meta.HTTP_METHODS:
-                classdict[name] = authenticator(classdict[name])
-        classdict['_get_request_arguments'] = meta._get_request_arguments
-        classdict['_get_request_path'] = meta._get_request_path
-        classdict['_request_aborter'] = meta._request_aborter
-        return super(FlaskRequestAuthMetaClass, meta).__new__(
-            meta, classname, supers, classdict)
 
 
 ##

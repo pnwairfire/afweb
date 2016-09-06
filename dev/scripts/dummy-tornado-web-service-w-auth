@@ -76,8 +76,19 @@ def main(port, log_level_str, log_file, log_format, debug):
 
     # delayed import so that logging is configured first
     from afweb import auth
-    class Ping(tornado.web.RequestHandler, metaclass=auth.TornadoWebRequestAuthMetaClass):
 
+    class AuthBaseClass(tornado.web.RequestHandler):
+
+        async def _look_up_secret(self, request_args):
+            key = self.get_query_arguments('_k')
+            if not key or len(key) != 1:
+                raise tornado.web.HTTPError(400,
+                "Specify '_k' in the query string")
+            # TODO: actually look it up
+            return 'e80556c6-70d8-11e6-a3ff-3c15c2c6639e'
+
+    class Ping(AuthBaseClass,
+            metaclass=auth.TornadoWebRequestAuthMetaClass):
         def get(self):
             # TODO: return anything else?
             self.write({"msg": "pong"})
