@@ -7,6 +7,7 @@ __author__      = "Joel Dubowy"
 import abc
 import datetime
 import hashlib
+import logging
 import os
 import time
 import types
@@ -17,7 +18,8 @@ import tornado.log
 import tornado.web
 
 from flask import request
-from flask.ext.restful import abort
+from flask.ext.restful import abort, Resource
+from flask.views import MethodViewType
 
 
 __all__ = [
@@ -76,57 +78,74 @@ def compute_signature(path, query_params, secret):
 #    (When I implmented as a class, the first arg to decorated function
 #    wasn't the request handler class, which we need in order to access
 #    the request object
-def authenticator(func):
-    """Generic decorator to be used by framework specific metaclasses, below
-    """
+def authenticator(is_async=False):
+    def _authenticator(func):
+        """Generic decorator to be used by framework specific metaclasses, below
+        """
 
-    def _check_for_auth_params(request_args):
-        args_keys = set([e[0] for e in request_args])
-        if not REQUIRED_REQUEST_PARAMS_SET.issubset(args_keys):
-            message = "Request must include parameters '%s' for authentication" % (
-                "', '".join(REQUIRED_REQUEST_PARAMS_SET))
-            # TODO: include message in response (not just in log)
-            request_handler._request_aborter(401, message)
+        def _check_for_auth_params(request_handler, request_args):
+            args_keys = set([e[0] for e in request_args])
+            if not REQUIRED_REQUEST_PARAMS_SET.issubset(args_keys):
+                message = "Request must include parameters '%s' for authentication" % (
+                    "', '".join(REQUIRED_REQUEST_PARAMS_SET))
+                # TODO: include message in response (not just in log)
+                request_handler._request_aborter(401, message)
 
-    RECENCY_THRESHOLD = datetime.timedelta(minutes=10)
+        RECENCY_THRESHOLD = datetime.timedelta(minutes=10)
 
-    def _get_arg_val(request_args, key, pretty_key):
-        ts_vals = [e[1] for e in request_args if e[0] == key]
-        if len(ts_vals) != 1:
-            request_handler._request_aborter(401,
-                'request must contain a single {} - {}'.format(
-                pretty_key, key))
-        return ts_vals[0]
+        def _get_arg_val(request_args, key, pretty_key):
+            ts_vals = [e[1] for e in request_args if e[0] == key]
+            if len(ts_vals) != 1:
+                request_handler._request_aborter(401,
+                    'request must contain a single {} - {}'.format(
+                    pretty_key, key))
+            return ts_vals[0]
 
 
-    def _check_recency(request_handler, request_args):
-        ts_val = _get_arg_val(request_args,
-            REQUIRED_REQUEST_PARAMS['timestamp'], 'timestamp')
-        ts = datetime.datetime.strptime(ts_val, TIMESTAMP_FORMAT)
-        # Note: This previously used time.time() to get current time
-        #   instead of datetime.datetime.utcnow() to enable use of
-        #   timecop in tests, but time.time returns system clock time
-        #   which may in the be local timezone
-        #now = datetime.datetime.fromtimestamp(time.time())
-        now = datetime.datetime.utcnow()
-        if abs(ts - now) > RECENCY_THRESHOLD:
-            request_handler._request_aborter(401, "Timestamp is not recent")
+        def _check_recency(request_handler, request_args):
+            ts_val = _get_arg_val(request_args,
+                REQUIRED_REQUEST_PARAMS['timestamp'], 'timestamp')
+            logging.debug(ts_val)
+            ts = datetime.datetime.strptime(ts_val, TIMESTAMP_FORMAT)
+            # Note: This previously used time.time() to get current time
+            #   instead of datetime.datetime.utcnow() to enable use of
+            #   timecop in tests, but time.time returns system clock time
+            #   which may in the be local timezone
+            #now = datetime.datetime.fromtimestamp(time.time())
+            now = datetime.datetime.utcnow()
+            if abs(ts - now) > RECENCY_THRESHOLD:
+                request_handler._request_aborter(401, "Timestamp is not recent")
 
-    async def _authed(request_handler, *args, **kwargs):
-        request_args = request_handler._get_request_arguments()
-        _check_for_auth_params(request_args)
-        _check_recency(request_handler, request_args)
-        secret = await request_handler._look_up_secret(request_args)
-        signature = _get_arg_val(request_args,
-            REQUIRED_REQUEST_PARAMS['signature'], 'signature')
-        computed_signature, query_string = compute_signature(
-            request_handler._get_request_path(), request_args, secret)
+        def _get_args(request_handler):
+            request_args = request_handler._get_request_arguments()
+            _check_for_auth_params(request_handler, request_args)
+            _check_recency(request_handler, request_args)
+            return request_args
 
-        if signature != computed_signature:
-            request_handler._request_aborter(401, "Invalid signature.")
+        def _check(request_handler, request_args, secret):
+            signature = _get_arg_val(request_args,
+                REQUIRED_REQUEST_PARAMS['signature'], 'signature')
+            computed_signature, query_string = compute_signature(
+                request_handler._get_request_path(), request_args, secret)
 
-        return func(request_handler, *args, **kwargs) # TODO: use `await`?
-    return _authed
+            if signature != computed_signature:
+                request_handler._request_aborter(401, "Invalid signature.")
+
+        def _authed(request_handler, *args, **kwargs):
+            request_args = _get_args(request_handler)
+            secret = request_handler._look_up_secret(request_args)
+            _check(request_handler, request_args, secret)
+            return func(request_handler, *args, **kwargs)
+
+        async def _authed_async(request_handler, *args, **kwargs):
+            request_args = _get_args(request_handler)
+            secret = await request_handler._look_up_secret(request_args)
+            _check(request_handler, request_args, secret)
+            return func(request_handler, *args, **kwargs) # TODO: use `await`?
+
+        return _authed_async if is_async else _authed
+
+    return _authenticator
 
 
 ##
@@ -165,9 +184,10 @@ class BaseRequestAuthMetaClass(type):
 
     def __new__(meta, classname, supers, classdict):
         tornado.log.gen_log.debug("in %s.__new__", meta.__name__)
+        _authenticator = authenticator(is_async=getattr(meta, 'IS_ASYNC', None))
         for name, elem in classdict.items():
             if type(elem) is types.FunctionType and name in HTTP_METHODS:
-                classdict[name] = authenticator(classdict[name])
+                classdict[name] = _authenticator(classdict[name])
         classdict['_get_request_arguments'] = meta._get_request_arguments
         classdict['_get_request_path'] = meta._get_request_path
         classdict['_request_aborter'] = meta._request_aborter
@@ -187,6 +207,8 @@ class BaseRequestAuthMetaClass(type):
 
 class TornadoWebRequestAuthMetaClass(BaseRequestAuthMetaClass):
 
+    IS_ASYNC = True
+
     @staticmethod
     def _get_request_arguments(request_handler):
         request_args = []
@@ -195,6 +217,7 @@ class TornadoWebRequestAuthMetaClass(BaseRequestAuthMetaClass):
                 request_args.append((k, v[0].decode('ascii')))
             else:
                 request_args.extend([(k, _v.decode('ascii')) for _v in v])
+        tornado.log.gen_log.debug('request_args: %s', request_args)
         return request_args
 
     @staticmethod
@@ -209,13 +232,12 @@ class TornadoWebRequestAuthMetaClass(BaseRequestAuthMetaClass):
     #     tornado.log.gen_log.debug("in TornadoWebRequestAuthMetaClass.__init__")
     #     super(TornadoWebRequestAuthMetaClass, self).__init__(name, bases, attrs)
 
+class FlaskRequestAuthMetaClass(BaseRequestAuthMetaClass, MethodViewType):
 
-class FlaskRequestAuthMetaClass(BaseRequestAuthMetaClass):
-
-    @staticmethod
     def _get_request_arguments(request_handler):
-        # TODO: form list of tuples from request.args
-        pass
+        request_args = [e for e in request.args.lists()]
+        tornado.log.gen_log.debug('request_args: %s', request_args)
+        return request_args
 
     @staticmethod
     def _get_request_path(request_handler):
