@@ -56,20 +56,6 @@ def configure_logging(log_level_str, log_file, log_format):
         logging.getLogger().addHandler(fh)
 
 def main(port, log_level_str, log_file, log_format, debug):
-    """Main method for starting fire spider tornado web service
-
-    args:
-     - port -- port to listen on
-     - mongodb_url -- url to acess mongodb
-     - database_name -- name of database containing fires collection
-
-    kwargs:
-     - log_level_str -- DEBUG, INFO, etc.
-     - log_file -- file to write logs to
-     - log_format -- format of log messages
-     - debug -- whether or not to run in debug mode (with code
-        auto-reloading etc)
-    """
     log_level_str = log_level_str or 'WARNING'
     log_format = log_format or DEFAULT_LOG_FORMAT
     configure_logging(log_level_str, log_file, log_format)
@@ -114,5 +100,5 @@ if __name__ == "__main__":
     # but we'll configure logging oureselves in app.main
     scripting_args.add_logging_options(parser)
     args = parser.parse_args()
-    main(args.port, args.log_level, args.log_file, args.log_message_format,
-        args.debug)
+    main(args.port, args.log_level, args.log_file,
+        args.log_message_format, args.debug)
