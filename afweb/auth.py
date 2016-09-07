@@ -41,11 +41,15 @@ def sign_url(url, key, secret):
     #   urllib.parse.urlparse returns unexpected parts)
     url_parts = urllib.parse.urlparse(url)
 
-    query_params = []
+    query_params = {}
     if url_parts.query:
         # Note: this preserves multiple occurents of any fields.
         #  e.g. 'a=1&b=s$a=2' -> [['a','1'],['b'.'s'],['a','2']]
-        query_params = [e.split('=') for e in url_parts.query.split('&')]
+        query_params = {}
+        for e in url_parts.query.split('&'):
+            k, v = e.split('=')
+            query_params[k] = query_params.get(k, []) + [v]
+
 
         # don't allow _ts, _k, or _s be in the in unsigned request
         if any([e[0] in REQUIRED_REQUEST_PARAMS_SET for e in query_params]):
@@ -53,10 +57,10 @@ def sign_url(url, key, secret):
                 "', '".join(REQUIRED_REQUEST_PARAMS_SET)))
 
     # Add timestamp and key
-    query_params.extend([
-        ('_ts', datetime.datetime.utcnow().strftime(TIMESTAMP_FORMAT)),
-        ('_k', key)
-    ])
+    query_params.update({
+        '_ts': [datetime.datetime.utcnow().strftime(TIMESTAMP_FORMAT)],
+        '_k': [key]
+    })
 
     signature, query_string = compute_signature(
         url_parts.path, query_params, secret)
@@ -67,8 +71,8 @@ QUERY_SIG_EXCLUDES = ['_s']
 
 def compute_signature(path, query_params, secret):
     query_string = '&'.join(sorted([
-        "%s=%s"%(e[0], e[1]) for e in query_params
-        if e[0] != REQUIRED_REQUEST_PARAMS['signature']]))
+        "%s=%s"%(k, _v) for k, v in query_params.items() for _v in v
+        if k != REQUIRED_REQUEST_PARAMS['signature']]))
 
     str_to_hash = secret.encode() + (''.join([path, query_string])).encode()
     tornado.log.gen_log.debug('string to hash %s', str_to_hash)
@@ -85,7 +89,8 @@ def authenticator(is_async=False):
 
         def _check_for_auth_params(request_handler, request_args):
             args_keys = set([e[0] for e in request_args])
-            if not REQUIRED_REQUEST_PARAMS_SET.issubset(args_keys):
+            if any([k not in request_args or len(request_args[k]) !=1
+                    for k in REQUIRED_REQUEST_PARAMS_SET]):
                 message = "Request must include parameters '%s' for authentication" % (
                     "', '".join(REQUIRED_REQUEST_PARAMS_SET))
                 # TODO: include message in response (not just in log)
@@ -94,13 +99,11 @@ def authenticator(is_async=False):
         RECENCY_THRESHOLD = datetime.timedelta(minutes=10)
 
         def _get_arg_val(request_args, key, pretty_key):
-            ts_vals = [e[1] for e in request_args if e[0] == key]
-            if len(ts_vals) != 1:
+            if key not in request_args or len(request_args[key]) != 1:
                 request_handler._request_aborter(401,
                     'request must contain a single {} - {}'.format(
                     pretty_key, key))
-            return ts_vals[0]
-
+            return request_args[key][0]
 
         def _check_recency(request_handler, request_args):
             ts_val = _get_arg_val(request_args,
@@ -160,13 +163,11 @@ class BaseRequestAuthMetaClass(type):
 
     @abc.abstractmethod
     def _get_request_arguments(request_handler):
-        """Returns an array of (key, vals) query string paramater tuples
+        """Returns an dict of arrays representing query string parameters
 
-        Note: `vals` can have one or more values; it would have multiple
-        values if the same parameter key were used multiple times in the
-        query string (e.g. 'foo=bar&foo=baz')
-
-        TODO: refactor to expect dict instead?
+        Note: a parameter would have multiple values if the same
+        parameter key were used multiple times in the query string
+        (e.g. 'foo=bar&foo=baz')
         """
         pass
 
@@ -211,12 +212,8 @@ class TornadoWebRequestAuthMetaClass(BaseRequestAuthMetaClass):
 
     @staticmethod
     def _get_request_arguments(request_handler):
-        request_args = []
-        for k,v in request_handler.request.query_arguments.items():
-            if len(v) == 1:
-                request_args.append((k, v[0].decode('ascii')))
-            else:
-                request_args.extend([(k, _v.decode('ascii')) for _v in v])
+        request_args = {k:[_v.decode('ascii') for _v in v]
+            for k,v in request_handler.request.query_arguments.items()}
         tornado.log.gen_log.debug('request_args: %s', request_args)
         return request_args
 
@@ -235,7 +232,7 @@ class TornadoWebRequestAuthMetaClass(BaseRequestAuthMetaClass):
 class FlaskRequestAuthMetaClass(BaseRequestAuthMetaClass, MethodViewType):
 
     def _get_request_arguments(request_handler):
-        request_args = [e for e in request.args.lists()]
+        request_args = dict([e for e in request.args.lists()])
         tornado.log.gen_log.debug('request_args: %s', request_args)
         return request_args
 
