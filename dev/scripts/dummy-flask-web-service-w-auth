@@ -21,9 +21,9 @@ api = Api(app)
 
 class AuthBaseClass(Resource, metaclass=auth.FlaskRequestAuthMetaClass):
 
-    async def _look_up_secret(self, request_args):
-        key = self.get_query_arguments('_k')
-        if not key or len(key) != 1:
+    def _look_up_secret(self, request_args):
+        api_key = request_args.get('_k')
+        if not api_key or len(api_key) != 1:
             raise tornado.web.HTTPError(400,
             "Specify '_k' in the query string")
         # TODO: actually look it up
