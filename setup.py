@@ -23,7 +23,7 @@ setup(
     url='https://github.com/pnwairfire/afweb',
     description='Utilities for web applications',
     install_requires=[
-        "afscripting==1.0.0",
+        "afscripting==1.*",
         'tornado==4.3',
         'Flask==0.10.1',
         'Flask-RESTful==0.2.12'
