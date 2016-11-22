@@ -4,7 +4,7 @@
 
 Example calls:
  > ./bin/statuslogging/log-status.py \
-    -e http://status-log-production.herokuapp.com/status-logs \
+    -e http://status-log.airfire.org/status-logs \
     -k abc123 -s dsfjerw -p BlueSky -o Ok -f foo=bar -f baz=foo -v
 """
 
