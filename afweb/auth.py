@@ -187,7 +187,9 @@ class BaseRequestAuthMetaClass(type):
         tornado.log.gen_log.debug("in %s.__new__", meta.__name__)
         _authenticator = authenticator(is_async=getattr(meta, 'IS_ASYNC', None))
         for name, elem in classdict.items():
-            if type(elem) is types.FunctionType and name in HTTP_METHODS:
+            if (type(elem) is types.FunctionType and name in HTTP_METHODS
+                    and ('AUTH_EXCLUDED_METHODS' not in classdict or
+                    name not in classdict['AUTH_EXCLUDED_METHODS'])):
                 classdict[name] = _authenticator(classdict[name])
         classdict['_get_request_arguments'] = meta._get_request_arguments
         classdict['_get_request_path'] = meta._get_request_path
