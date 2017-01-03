@@ -38,10 +38,20 @@ Examples
     $ ./dev/scripts/dummy-tornado-webservice-w-auth
     $ ./dev/scripts/dummy-tornado-webservice-w-auth -d --log-level=DEBUG
 
-  Then use `sign-request` to submit a request:
+  GET will work:
+
+    $ curl http://localhost:8882/
+
+  But POST will fail:
+
+    $ curl http://localhost:8882/ -X POST
+
+  POST will succeed if the request is signed (as will GET):
 
     $ ./bin/sign-request --log-level=debug -u http://localhost:8882/ \\
-            -k sdf -s e80556c6-70d8-11e6-a3ff-3c15c2c6639e
+            -k sdf -s e80556c6-70d8-11e6-a3ff-3c15c2c6639e -X POST
+    $ ./bin/sign-request --log-level=debug -u http://localhost:8882/ \\
+            -k sdf -s e80556c6-70d8-11e6-a3ff-3c15c2c6639e -X GET
  """
 
 DEFAULT_LOG_FORMAT = "%(asctime)s %(name)s %(levelname)s %(filename)s#%(funcName)s: %(message)s"
@@ -75,9 +85,17 @@ def main(port, log_level_str, log_file, log_format, debug):
 
     class Ping(AuthBaseClass,
             metaclass=auth.TornadoWebRequestAuthMetaClass):
+
+        AUTH_EXCLUDED_METHODS = ['get']
+
         def get(self):
             # TODO: return anything else?
             self.write({"msg": "pong"})
+
+        def post(self):
+            # TODO: return anything else?
+            self.write({"msg": "pong"})
+
 
     routes = [
         (r".*", Ping)
