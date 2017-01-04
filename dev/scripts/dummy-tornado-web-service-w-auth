@@ -35,8 +35,8 @@ OPTIONAL_ARGS = [
 EPILOG_STR = """
 Examples
 
-    $ ./dev/scripts/dummy-tornado-webservice-w-auth
-    $ ./dev/scripts/dummy-tornado-webservice-w-auth -d --log-level=DEBUG
+    $ ./dev/scripts/dummy-tornado-web-service-w-auth
+    $ ./dev/scripts/dummy-tornado-web-service-w-auth -d --log-level=DEBUG
 
   GET will work:
 
