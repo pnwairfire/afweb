@@ -29,6 +29,6 @@ setup(
         'Flask-RESTful==0.2.12'
     ],
     dependency_links=[
-        "https://pypi.smoke.airfire.org/simple/afscripting/"
+        "https://pypi.airfire.org/simple/afscripting/"
     ]
 )

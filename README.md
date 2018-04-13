@@ -21,7 +21,7 @@ or http:
 Run the following to install required python packages as well
 as useful dev packages:
 
-    pip install --trusted-host pypi.smoke.airfire.org -r requirements.txt
+    pip install -r requirements.txt
     pip install -r requirements-dev.txt
 
 ### Setup Environment
@@ -40,7 +40,7 @@ First, install pip (with sudo if necessary):
 Then, to install, for example, v1.1.2, use the following (with sudo if
 necessary):
 
-    pip install --trusted-host pypi.smoke.airfire.org -i http://pypi.smoke.airfire.org/simple afweb==1.1.2
+    pip install --extra-index https://pypi.airfire.org/simple afweb==1.1.2
 
 If you get an error like    ```AttributeError: 'NoneType' object has no attribute 'skip_requirements_regex```, it means you need in upgrade pip.  One way to do so is with the following:
 
