@@ -25,8 +25,8 @@ setup(
     install_requires=[
         "afscripting==1.*",
         'tornado==4.3',
-        'Flask==0.10.1',
-        'Flask-RESTful==0.2.12'
+        'Flask==2.0.1',
+        'Flask-RESTful==0.3.9'
     ],
     dependency_links=[
         "https://pypi.airfire.org/simple/afscripting/"
