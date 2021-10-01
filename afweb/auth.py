@@ -18,7 +18,7 @@ import tornado.log
 import tornado.web
 
 from flask import request
-from flask.ext.restful import abort, Resource
+from flask_restful import abort, Resource
 from flask.views import MethodViewType
 
 

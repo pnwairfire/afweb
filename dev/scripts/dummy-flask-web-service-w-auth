@@ -9,7 +9,7 @@ import sys
 
 from afweb import auth
 from flask import Flask
-from flask.ext.restful import Api, Resource
+from flask_restful import Api, Resource
 from afscripting import args as scripting_args
 
 root_dir = os.path.abspath(os.path.join(sys.path[0], '../../'))
